@@ -19,7 +19,6 @@ struct AudioData {
     float bandpass2;
 };
 
-float passall_filter(float sample);
 float lowpass_filter(float sample);
 float highpass_filter(float sample);
 float bandpass1_filter(float sample);
@@ -29,30 +28,42 @@ int pacallback(const void *input, void *output, unsigned long frameCount, const 
                PaStreamCallbackFlags statusFlags, void *userData) {
 
     sf_count_t i;
+    int filters;
+    float filsum;
     sf_count_t rdsampl;
     float *out = (float*)output;
     struct AudioData *data = (struct AudioData*)userData;
     float* buffer_cp = data->buffer;
-    float (*filter)(float);
 
     rdsampl = sf_read_float(data->file, data->buffer, frameCount * data->info->channels);
-    if (data->lowpass == 1) {
-        filter = &lowpass_filter;
-    }
-    else if (data->highpass == 1) {
-        filter = &highpass_filter;
-    }
-    else if (data -> bandpass1 == 1) {
-        filter = &bandpass1_filter;
-    }
-    else if (data -> bandpass2 == 1) {
-        filter = &bandpass2_filter;
-    }
-    else {
-        filter = &passall_filter;
-    }
+
     for (i = 0; i < rdsampl; i++) {
-        *out++ = (*filter)(*buffer_cp++);
+        filters = 0;
+        filsum = 0;
+        if (data->lowpass != 0) {
+            filsum += data->lowpass * lowpass_filter(*buffer_cp);
+            filters++;
+        }
+        if (data->highpass != 0) {
+            filsum += data->highpass * highpass_filter(*buffer_cp);
+            filters++;
+        }
+        if (data -> bandpass1 != 0) {
+            filsum += data->bandpass1 * bandpass1_filter(*buffer_cp);
+            filters++;
+        }
+        if (data -> bandpass2 != 0) {
+            filsum += data->bandpass2 * bandpass2_filter(*buffer_cp);
+            filters++;
+        }
+        if (filters == 0) {
+            filsum = *buffer_cp;
+        }
+        else {
+            filsum /= (float) filters;
+        }
+        *out++ = filsum;
+        buffer_cp++;
     }
 
     if (rdsampl < frameCount) {
@@ -71,7 +82,9 @@ int main(int argc, char *argv[]) {
     PaError err;
     int dev_null, bak_stdout;
     char uinput[256];
-
+    char command[6];
+    float gain;
+    int matches;
 
     printf("C-DSPEQ\n");
     printf("Using %s\n", Pa_GetVersionInfo()->versionText);
@@ -115,6 +128,8 @@ int main(int argc, char *argv[]) {
     data.buffer = samples;
     data.lowpass = 0;
     data.highpass = 0;
+    data.bandpass2 = 0;
+    data.bandpass1 = 0;
 
     err = Pa_OpenDefaultStream(
             &stream,
@@ -127,49 +142,48 @@ int main(int argc, char *argv[]) {
             &data
     );
     HANDLE_PA_ERROR(err)
-
-
-
     err = Pa_StartStream(stream);
     HANDLE_PA_ERROR(err)
     printf("Playing\n\n");
+
     while (Pa_IsStreamActive(stream)) {
         printf("$> ");
         fgets(uinput, 255, stdin);
+        matches = sscanf(uinput, "%4s %f", command, &gain);
 
-        if (strncmp(uinput, "lp", 2) == 0) {
-            data.highpass = 0;
-            data.bandpass1 = 0;
-            data.bandpass2 = 0;
-            data.lowpass = 1;
+        if (matches == 2) {
+            if (strcmp(command, "lp") == 0) {
+                data.lowpass = gain;
+                continue;
+            }
+            else if (strcmp(command, "hp") == 0) {
+                data.highpass = gain;
+                continue;
+            }
+            else if (strcmp(command, "bp1") == 0) {
+                data.bandpass1 = gain;
+                continue;
+            }
+            else if (strcmp(command, "bp2") == 0) {
+                data.bandpass2 = gain;
+                continue;
+            }
         }
-        else if (strncmp(uinput, "hp", 2) == 0) {
-            data.highpass = 1;
-            data.bandpass1 = 0;
-            data.bandpass2 = 0;
-            data.lowpass = 0;
+        else if (matches == 1) {
+            if (strcmp(command, "none") == 0 ) {
+                data.highpass = 0;
+                data.bandpass1 = 0;
+                data.bandpass2 = 0;
+                data.lowpass = 0;
+                continue;
+            }
+            else if (strcmp(command, "exit") == 0) {
+                break;
+            }
         }
-        else if (strncmp(uinput, "bp1", 3) == 0) {
-            data.highpass = 0;
-            data.bandpass1 = 1;
-            data.bandpass2 = 0;
-            data.lowpass = 0;
-        }
-        else if (strncmp(uinput, "bp2", 3) == 0) {
-            data.highpass = 0;
-            data.bandpass1 = 0;
-            data.bandpass2 = 1;
-            data.lowpass = 0;
-        }
-        else if (strncmp(uinput, "none", 4) == 0 ) {
-            data.highpass = 0;
-            data.bandpass1 = 0;
-            data.bandpass2 = 0;
-            data.lowpass = 0;
-        }
-        else if (strncmp(uinput, "exit", 4) == 0) {
-            break;
-        }
+
+
+        printf("Command not recognized\n");
     }
 
     err = Pa_CloseStream(stream);
@@ -186,9 +200,6 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
-float passall_filter(float sample) { return sample; }
-
 
 /**
  * Fourth order IIR Butterworth filter.
