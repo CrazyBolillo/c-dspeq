@@ -5,9 +5,17 @@
 #include <unistd.h>
 #include <portaudio.h>
 #include <string.h>
+#include <signal.h>
+#include <stdbool.h>
 
-#define HANDLE_PA_ERROR(x) if ((x) != paNoError) { printf("PortAudio error: %s\n", Pa_GetErrorText(x)); return 1; }
+#define HANDLE_PA_ERROR(x) if ((x) != paNoError) { printf("PortAudio error: %s\n", Pa_GetErrorText(x)); raise(SIGTERM); }
 #define FRAMES 256
+
+struct SF_INFO audinf;
+SNDFILE *audfl;
+float *samples;
+PaStream *stream;
+PaError err;
 
 struct AudioData {
     SNDFILE *file;
@@ -17,22 +25,27 @@ struct AudioData {
     float highpass;
     float bandpass1;
     float bandpass2;
-};
+    bool stop;
+} audiodt;
+
 
 float lowpass_filter(float sample);
 float highpass_filter(float sample);
 float bandpass1_filter(float sample);
 float bandpass2_filter(float sample);
 
-int pacallback(const void *input, void *output, unsigned long frameCount, const PaStreamCallbackTimeInfo *timeInfo,
-               PaStreamCallbackFlags statusFlags, void *userData) {
+void sigterm_handler(int signum);
+void sigint_handler(int signum);
+
+int pacallback(const void *input, void *output, unsigned long frameCount, const PaStreamCallbackTimeInfo *timeinfo,
+               PaStreamCallbackFlags flags, void *userdata) {
 
     sf_count_t i;
     int filters;
     float filsum;
     sf_count_t rdsampl;
     float *out = (float*)output;
-    struct AudioData *data = (struct AudioData*)userData;
+    struct AudioData *data = (struct AudioData*)userdata;
     float* buffer_cp = data->buffer;
 
     rdsampl = sf_read_float(data->file, data->buffer, frameCount * data->info->channels);
@@ -67,25 +80,30 @@ int pacallback(const void *input, void *output, unsigned long frameCount, const 
     }
 
     if (rdsampl < frameCount) {
-        printf("\nTrack has ended\n");
+        printf("\n\nTrack has ended");
+        return paComplete;
+    }
+    else if (data->stop) {
         return paComplete;
     }
 
     return paContinue;
 }
 
+void pafinishcall(void *userdata) {
+    raise(SIGTERM);
+}
+
 int main(int argc, char *argv[]) {
     char *audpath;
-    struct SF_INFO audinf;
-    SNDFILE *audfl;
-    float *samples;
-    PaStream *stream;
-    PaError err;
     int dev_null, bak_stdout;
     char uinput[256];
     char command[6];
     float gain;
     int matches;
+
+    signal(SIGTERM, sigterm_handler);
+    signal(SIGINT, sigint_handler);
 
     printf("C-DSPEQ\n");
     printf("Using %s\n", Pa_GetVersionInfo()->versionText);
@@ -123,14 +141,14 @@ int main(int argc, char *argv[]) {
     dup2(bak_stdout, STDERR_FILENO);
     close(bak_stdout);
 
-    struct AudioData data;
-    data.file = audfl;
-    data.info = &audinf;
-    data.buffer = samples;
-    data.lowpass = 0;
-    data.highpass = 0;
-    data.bandpass2 = 0;
-    data.bandpass1 = 0;
+    audiodt.file = audfl;
+    audiodt.info = &audinf;
+    audiodt.buffer = samples;
+    audiodt.lowpass = 0;
+    audiodt.highpass = 0;
+    audiodt.bandpass2 = 0;
+    audiodt.bandpass1 = 0;
+    audiodt.stop = 0;
 
     err = Pa_OpenDefaultStream(
             &stream,
@@ -140,9 +158,11 @@ int main(int argc, char *argv[]) {
             audinf.samplerate,
             FRAMES,
             pacallback,
-            &data
+            &audiodt
     );
     HANDLE_PA_ERROR(err)
+    err = Pa_SetStreamFinishedCallback(stream, pafinishcall);
+    HANDLE_PA_ERROR(err);
     err = Pa_StartStream(stream);
     HANDLE_PA_ERROR(err)
     printf("Playing\n\n");
@@ -154,28 +174,28 @@ int main(int argc, char *argv[]) {
 
         if (matches == 2) {
             if (strcmp(command, "lp") == 0) {
-                data.lowpass = gain;
+                audiodt.lowpass = gain;
                 continue;
             }
             else if (strcmp(command, "hp") == 0) {
-                data.highpass = gain;
+                audiodt.highpass = gain;
                 continue;
             }
             else if (strcmp(command, "bp1") == 0) {
-                data.bandpass1 = gain;
+                audiodt.bandpass1 = gain;
                 continue;
             }
             else if (strcmp(command, "bp2") == 0) {
-                data.bandpass2 = gain;
+                audiodt.bandpass2 = gain;
                 continue;
             }
         }
         else if (matches == 1) {
             if (strcmp(command, "none") == 0 ) {
-                data.highpass = 0;
-                data.bandpass1 = 0;
-                data.bandpass2 = 0;
-                data.lowpass = 0;
+                audiodt.highpass = 0;
+                audiodt.bandpass1 = 0;
+                audiodt.bandpass2 = 0;
+                audiodt.lowpass = 0;
                 continue;
             }
             else if (strcmp(command, "exit") == 0) {
@@ -184,22 +204,32 @@ int main(int argc, char *argv[]) {
         }
         printf("Command not recognized\n");
     }
+    sigterm_handler(SIGTERM);
 
-    exit:
+    return 0;
+}
+
+void sigterm_handler(int sig ) {
+    signal(SIGTERM, SIG_DFL);
+
+    printf("\nStopping\n");
     err = Pa_CloseStream(stream);
     if (err != paNoError) {
-        printf("Error closing audio stream %s\n", Pa_GetErrorText(err));
-        return 1;
+        printf("%s\n", Pa_GetErrorText(err));
     }
     err = Pa_Terminate();
     if (err != paNoError) {
-        printf("PortAudio error: %s\n", Pa_GetErrorText(err));
-        return 1;
+        printf("%s\n", Pa_GetErrorText(err));
     }
     sf_close(audfl);
     free(samples);
 
-    return 0;
+    raise(SIGTERM);
+}
+
+void sigint_handler(int sig) {
+    printf("\n");
+    audiodt.stop = 1;
 }
 
 /**
