@@ -6,7 +6,7 @@
 #include <portaudio.h>
 #include <string.h>
 
-#define HANDLE_PA_ERROR(x) if (x != paNoError) { printf("PortAudio error: %s\n", Pa_GetErrorText(x)); return 1; }
+#define HANDLE_PA_ERROR(x) if ((x) != paNoError) { printf("PortAudio error: %s\n", Pa_GetErrorText(x)); return 1; }
 #define FRAMES 256
 
 struct AudioData {
@@ -67,6 +67,7 @@ int pacallback(const void *input, void *output, unsigned long frameCount, const 
     }
 
     if (rdsampl < frameCount) {
+        printf("\nTrack has ended\n");
         return paComplete;
     }
 
@@ -181,11 +182,10 @@ int main(int argc, char *argv[]) {
                 break;
             }
         }
-
-
         printf("Command not recognized\n");
     }
 
+    exit:
     err = Pa_CloseStream(stream);
     if (err != paNoError) {
         printf("Error closing audio stream %s\n", Pa_GetErrorText(err));
@@ -197,6 +197,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     sf_close(audfl);
+    free(samples);
 
     return 0;
 }
