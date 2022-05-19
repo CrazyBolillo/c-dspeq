@@ -29,8 +29,8 @@ def plot(fig, title, axis, hlines, vlines, x, y):
 # ---------------
 # Low pass design
 # ----------------
-lpb, lpa = iirfilter(4, 500, btype='lowpass', ftype='butter', output='ba', fs=SAMPLING_FREQ)
-print("- Low-pass filter. Fc = 500, Fs = 48000")
+lpb, lpa = iirfilter(4, 200, btype='lowpass', ftype='butter', output='ba', fs=SAMPLING_FREQ)
+print("- Low-pass filter. Fc = 200, Fs = 48000")
 print(f"B: {lpb}")
 print(f"A: {lpa}")
 w, h = freqz(lpb, lpa, fs=SAMPLING_FREQ)

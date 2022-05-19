@@ -234,21 +234,21 @@ void sigint_handler(int sig) {
 
 /**
  * Fourth order IIR Butterworth filter.
- * Fc = 500Hz
+ * Fc = 200Hz
  * Fs = 48000
  * @param sample
  * @return
  */
 float lowpass_filter(float sample) {
-    const float b0 = 0.00000105f;
-    const float b1 = 0.00000422f;
-    const float b2 = 0.00000633f;
-    const float b3 = 0.00000422f;
-    const float b4 = 0.00000105f;
-    const float a1 = -3.8289861f;
-    const float a2 = 5.50142959f;
-    const float a3 = -3.51519387f;
-    const float a4 = 0.84276724f;
+    const float b0 = 0.00000003f;
+    const float b1 = 0.00000011f;
+    const float b2 = 0.00000017f;
+    const float b3 = 0.00000011f;
+    const float b4 = 0.00000003f;
+    const float a1 = -3.93158947f;
+    const float a2 = 5.7970987f;
+    const float a3 = -3.79938277f;
+    const float a4 = 0.93387399f;
 
     static float x1, x2, x3, x4;
     static float y1, y2, y3, y4;
